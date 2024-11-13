@@ -23,6 +23,7 @@ def on_message(client, userdata, msg):
     value = float(msg.payload.decode())
     current_time = datetime.now()
     sensor_type = 'temperature' if topic == mqtt_topic_suhu else 'humidity'
+    
     document = {
         'sensorType': sensor_type,
         'value': value,
@@ -48,35 +49,62 @@ def get_sensor_data():
         item['_id'] = str(item['_id'])
     return jsonify(data)
 
-@app.route('/data', methods=['GET'])
-def get_data():
-    data = {
-        "suhumax": 30.1,
-        "suhumin": 28.2,
-        "suhurata": 29.0,
+@app.route('/api/Data', methods=['GET'])
+def get_processed_sensor_data():
+    sensor_data = collection.find()
+    
+    suhumax = 30.5
+    suhumin = 18.2
+    suhurata = 24.4
+    
+    nilai_suhu_max_humid_max = []
+    for item in sensor_data:
+        sensor_type = item.get('sensorType')
+        if sensor_type == 'temperature':
+            nilai_suhu_max_humid_max.append({
+                'suhu': item.get('value', 0),
+                'humid': item.get('humidity', 0),
+                'Kecerahan': item.get('brightness', 0),
+                'timestamp': item.get('timestamp', datetime.now().isoformat())
+            })
+
+    month_year_max = []
+    for item in collection.aggregate([
+        {"$group": {
+            "_id": {"month": {"$month": "$timestamp"}, "year": {"$year": "$timestamp"}},
+            "max_suhu": {"$max": "$value"}
+        }},
+        {"$sort": {"_id.year": 1, "_id.month": 1}}
+    ]):
+        month = item['_id'].get('month', None)
+        year = item['_id'].get('year', None)
+        
+        if month is not None and year is not None:
+            month_year_max.append({
+                "month_year": f"{month:02d}-{year}"
+            })
+
+    hasil = {
+        "suhumax": suhumax,
+        "suhumin": suhumin,
+        "suhurata": suhurata,
         "nilai_suhu_max_humid_max": {
-            "0": {
-                "idx": 0,
-                "suhu": 30.1,
-                "humid": 60.0,
-                "Kecerahan": None,
-                "timestamp": datetime.now().isoformat()
-            },
-            "1": {
-                "idx": 1,
-                "suhu": 30.0,
-                "humid": 58.0,
-                "Kecerahan": None,
-                "timestamp": datetime.now().isoformat()
-            }
+            str(idx): {
+                "idx": idx,
+                "suhu": suhu["suhu"],
+                "humid": suhu["humid"],
+                "Kecerahan": suhu["Kecerahan"],
+                "timestamp": suhu["timestamp"]
+            } for idx, suhu in enumerate(nilai_suhu_max_humid_max)
         },
         "month_year_max": {
-            "0": {
-                "month_year": "11-2024"
-            }
+            str(idx): {
+                "month_year": suhu["month_year"]
+            } for idx, suhu in enumerate(month_year_max)
         }
     }
-    return jsonify(data)
+
+    return jsonify(hasil)
 
 if __name__ == '__main__':
     app.run(debug=True)
